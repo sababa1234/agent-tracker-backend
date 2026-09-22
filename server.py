@@ -6,17 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
 
-# Environment variables with provided fallbacks
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://oujnywxeaptywriwobnt.supabase.co")
 SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "sb_secret_AREQgcbSq_Ms4UXa9upyDw_nK4t_Rkg")
 
-# Initialize official Supabase client (HTTP REST over Port 443)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
 
-app = FastAPI(
-    title="IMEI Cloud Telemetry Backend",
-    version="2.0.0"
-)
+app = FastAPI(title="IMEI Cloud Telemetry Backend", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,9 +31,6 @@ class TelemetryPing(BaseModel):
 
 @app.post("/api/v1/telemetry", status_code=200)
 def receive_telemetry(data: TelemetryPing, request: Request):
-    """
-    Receives incoming Android telemetry and performs an UPSERT on 'telemetry' table.
-    """
     client_ip = data.ip if data.ip else (request.client.host if request.client else "N/A")
     current_time = time.time()
 
@@ -53,13 +45,9 @@ def receive_telemetry(data: TelemetryPing, request: Request):
     }
 
     try:
-        # Upsert automatically inserts or updates based on the primary key ('imei')
         response = supabase.table("telemetry").upsert(payload).execute()
     except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Supabase REST write error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Supabase REST write error: {str(e)}")
 
     return {
         "status": "success",
@@ -70,9 +58,6 @@ def receive_telemetry(data: TelemetryPing, request: Request):
 
 @app.get("/api/v1/telemetry/{imei}")
 def get_telemetry(imei: str):
-    """
-    Fetches latest telemetry for a given IMEI.
-    """
     try:
         response = supabase.table("telemetry").select("*").eq("imei", imei).execute()
         if not response.data:
@@ -85,10 +70,7 @@ def get_telemetry(imei: str):
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "healthy", 
-        "connection": "Supabase HTTPS REST API"
-    }
+    return {"status": "healthy", "connection": "Supabase HTTPS REST API"}
 
 if __name__ == "__main__":
     import uvicorn
