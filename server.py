@@ -13,6 +13,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 DEFAULT_SUPABASE_URL = "postgresql://postgres:%5BCresaint%401234.%5D@db.oujnywxeaptywriwobnt.supabase.co:5432/postgres"
 DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_SUPABASE_URL)
 
+
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
