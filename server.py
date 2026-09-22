@@ -32,10 +32,12 @@ class TelemetryPing(BaseModel):
     longitude: float
     city: Optional[str] = "N/A"
     network_name: Optional[str] = "N/A"
-    ip: Optional[str] = None
     brand: Optional[str] = "Unknown"
-    phone_name: Optional[str] = "Unknown"
+    phone_name: Optional[str] = "Unknown"   # User-assigned Device Name
+    model_name: Optional[str] = "Unknown"   # Hardware Model (e.g. TECNO CK6n)
+    build_number: Optional[str] = "Unknown" # OS Build Number
     ip_address: Optional[str] = None
+    ip: Optional[str] = None                # Maintained for backward compatibility
 
 
 @app.get("/")
@@ -66,7 +68,7 @@ def receive_telemetry(data: TelemetryPing, request: Request):
             detail="Database connection uninitialized. Ensure SUPABASE_SECRET_KEY is set on Render."
         )
 
-    # Resolve IP priority: Android app payload -> FastAPI client IP -> Fallback
+    # Determine IP address from incoming payload or fallback to client request host
     client_ip = (
         data.ip_address 
         or data.ip 
@@ -80,11 +82,12 @@ def receive_telemetry(data: TelemetryPing, request: Request):
         "longitude": data.longitude,
         "city": data.city or "N/A",
         "network_name": data.network_name or "N/A",
-        "ip": client_ip,
-        "timestamp": current_time,
         "brand": data.brand or "Unknown",
         "phone_name": data.phone_name or "Unknown",
-        "ip_address": client_ip
+        "model_name": data.model_name or "Unknown",
+        "build_number": data.build_number or "Unknown",
+        "ip_address": client_ip,
+        "timestamp": current_time
     }
 
     try:
