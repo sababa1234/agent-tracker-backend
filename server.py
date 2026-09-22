@@ -5,18 +5,22 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from supabase import create_client, Client
 
-app = FastAPI(
-    title="Agent Tracker Telemetry API",
-    description="Backend service for tracking IMEI telemetry data using Supabase"
+app = FastAPI(title="Agent Tracker Telemetry API")
+
+# Check for SUPABASE_SECRET_KEY (Render name), SUPABASE_KEY, or default fallback
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://oujnywxeaptywriwobnt.supabase.co")
+SUPABASE_KEY = (
+    os.getenv("SUPABASE_SECRET_KEY") 
+    or os.getenv("SUPABASE_KEY") 
+    or "sb_secret_AREQgcbSq_Ms4UXa9upyDw_nK4t_Rkg"
 )
 
-# Initialize Supabase client using environment variables configured in Render
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
-
 supabase: Optional[Client] = None
-if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    if SUPABASE_URL and SUPABASE_KEY:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as init_err:
+    print(f"Supabase Client Init Error: {init_err}", flush=True)
 
 
 class TelemetryPing(BaseModel):
@@ -30,40 +34,32 @@ class TelemetryPing(BaseModel):
 
 @app.get("/")
 def read_root():
-    """Root route to eliminate 404 errors on root domain access."""
     return {
         "status": "online",
-        "service": "IMEI Cloud Telemetry Backend",
+        "supabase_initialized": supabase is not None,
         "telemetry_endpoint": "/api/v1/telemetry",
-        "health_endpoint": "/health",
         "docs": "/docs"
     }
 
 
 @app.get("/health")
 def health_check():
-    """Health status endpoint."""
     if not supabase:
         raise HTTPException(
             status_code=500, 
-            detail="Supabase client not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables."
+            detail="Supabase client uninitialized. Check SUPABASE_SECRET_KEY on Render."
         )
-    return {
-        "status": "healthy",
-        "connection": "Supabase HTTPS REST API"
-    }
+    return {"status": "healthy", "connection": "Supabase HTTPS REST API"}
 
 
 @app.post("/api/v1/telemetry", status_code=200)
 def receive_telemetry(data: TelemetryPing, request: Request):
-    """Receives telemetry packets from the Android app and logs them into Supabase."""
     if not supabase:
         raise HTTPException(
             status_code=500, 
-            detail="Database connection uninitialized on backend server"
+            detail="Database connection uninitialized. Ensure SUPABASE_SECRET_KEY is set on Render."
         )
 
-    # Determine client IP if not provided in payload
     client_ip = data.ip if data.ip else (request.client.host if request.client else "N/A")
     current_time = time.time()
 
@@ -79,17 +75,13 @@ def receive_telemetry(data: TelemetryPing, request: Request):
 
     try:
         response = supabase.table("telemetry").upsert(payload).execute()
+        return {
+            "status": "success",
+            "message": "Telemetry packet stored successfully",
+            "imei": data.imei,
+            "timestamp": current_time
+        }
     except Exception as e:
-        # Logs exact error to Render console for easy debugging
-        print(f"SUPABASE ERROR: {str(e)}", flush=True)
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Supabase REST write error: {str(e)}"
-        )
-
-    return {
-        "status": "success",
-        "message": "Telemetry packet stored successfully",
-        "imei": data.imei,
-        "timestamp": current_time
-    }
+        error_msg = str(e)
+        print(f"SUPABASE ERROR: {error_msg}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Supabase REST write error: {error_msg}")
