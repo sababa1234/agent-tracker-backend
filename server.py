@@ -88,3 +88,35 @@ def receive_telemetry(data: TelemetryPing, request: Request):
         error_msg = str(e)
         print(f"SUPABASE ERROR: {error_msg}", flush=True)
         raise HTTPException(status_code=500, detail=f"Supabase REST write error: {error_msg}")
+
+
+@app.get("/api/v1/telemetry/{imei}", status_code=200)
+def get_telemetry(imei: str):
+    if not supabase:
+        raise HTTPException(
+            status_code=500, 
+            detail="Database connection uninitialized. Ensure SUPABASE_SECRET_KEY is set on Render."
+        )
+
+    try:
+        response = (
+            supabase.table("telemetry")
+            .select("*")
+            .eq("imei", imei)
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No telemetry record found for IMEI: {imei}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        print(f"SUPABASE READ ERROR: {error_msg}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Supabase REST read error: {error_msg}")
