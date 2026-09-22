@@ -1,59 +1,30 @@
 import os
 import time
-from contextlib import asynccontextmanager
 from typing import Optional
-from urllib.parse import quote_plus
-
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, Float, String, create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from supabase import create_client, Client
 
-# Safely encode special characters ([ ] @) in your password
-DB_USER = "postgres"
-DB_PASS = quote_plus("[Cresaint@1234.]")  # Encodes to %5BCresaint%401234.%5D safely for SQLAlchemy
-DB_HOST = "db.oujnywxeaptywriwobnt.supabase.co"
-DB_PORT = "5432"
-DB_NAME = "postgres"
+# Environment variables with provided fallbacks
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://oujnywxeaptywriwobnt.supabase.co")
+SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "sb_secret_AREQgcbSq_Ms4UXa9upyDw_nK4t_Rkg")
 
-DEFAULT_SUPABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_SUPABASE_URL)
+# Initialize official Supabase client (HTTP REST over Port 443)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,  # Verifies DB connection before issuing queries
-    pool_recycle=300
+app = FastAPI(
+    title="IMEI Cloud Telemetry Backend",
+    version="2.0.0"
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-class TelemetryModel(Base):
-    __tablename__ = "telemetry"
-    imei = Column(String, primary_key=True, index=True)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    city = Column(String)
-    network_name = Column(String)
-    ip = Column(String)
-    timestamp = Column(Float, nullable=False)
-
-def init_db():
-    try:
-        Base.metadata.create_all(bind=engine)
-        print("Database initialized successfully.")
-    except Exception as e:
-        print(f"Database init error: {str(e)}")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    init_db()
-    yield
-
-app = FastAPI(title="IMEI Cloud Telemetry Backend", version="2.0.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class TelemetryPing(BaseModel):
     imei: str = Field(..., min_length=1)
@@ -65,28 +36,30 @@ class TelemetryPing(BaseModel):
 
 @app.post("/api/v1/telemetry", status_code=200)
 def receive_telemetry(data: TelemetryPing, request: Request):
+    """
+    Receives incoming Android telemetry and performs an UPSERT on 'telemetry' table.
+    """
     client_ip = data.ip if data.ip else (request.client.host if request.client else "N/A")
     current_time = time.time()
 
-    db = SessionLocal()
+    payload = {
+        "imei": data.imei,
+        "latitude": data.latitude,
+        "longitude": data.longitude,
+        "city": data.city,
+        "network_name": data.network_name,
+        "ip": client_ip,
+        "timestamp": current_time
+    }
+
     try:
-        telemetry_item = TelemetryModel(
-            imei=data.imei,
-            latitude=data.latitude,
-            longitude=data.longitude,
-            city=data.city,
-            network_name=data.network_name,
-            ip=client_ip,
-            timestamp=current_time
-        )
-        db.merge(telemetry_item)
-        db.commit()
+        # Upsert automatically inserts or updates based on the primary key ('imei')
+        response = supabase.table("telemetry").upsert(payload).execute()
     except Exception as e:
-        db.rollback()
-        # Returns the explicit internal error to aid debugging
-        raise HTTPException(status_code=500, detail=f"Database write error: {str(e)}")
-    finally:
-        db.close()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Supabase REST write error: {str(e)}"
+        )
 
     return {
         "status": "success",
@@ -95,6 +68,29 @@ def receive_telemetry(data: TelemetryPing, request: Request):
         "timestamp": current_time
     }
 
+@app.get("/api/v1/telemetry/{imei}")
+def get_telemetry(imei: str):
+    """
+    Fetches latest telemetry for a given IMEI.
+    """
+    try:
+        response = supabase.table("telemetry").select("*").eq("imei", imei).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="No telemetry recorded for this device")
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
+
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy", 
+        "connection": "Supabase HTTPS REST API"
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("server:app", host="0.0.0.0", port=port)
