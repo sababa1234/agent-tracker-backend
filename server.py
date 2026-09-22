@@ -7,20 +7,23 @@ from supabase import create_client, Client
 
 app = FastAPI(title="Agent Tracker Telemetry API")
 
-# Check for SUPABASE_SECRET_KEY (Render name), SUPABASE_KEY, or default fallback
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://oujnywxeaptywriwobnt.supabase.co")
-SUPABASE_KEY = (
+# Automatically sanitize environment variables to prevent "Invalid URL" crashes
+raw_url = os.getenv("SUPABASE_URL", "https://oujnywxeaptywriwobnt.supabase.co")
+SUPABASE_URL = raw_url.strip("'\" []()").rstrip("/")
+
+raw_key = (
     os.getenv("SUPABASE_SECRET_KEY") 
     or os.getenv("SUPABASE_KEY") 
     or "sb_secret_AREQgcbSq_Ms4UXa9upyDw_nK4t_Rkg"
 )
+SUPABASE_KEY = raw_key.strip("'\" []()")
 
 supabase: Optional[Client] = None
-try:
-    if SUPABASE_URL and SUPABASE_KEY:
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as init_err:
-    print(f"Supabase Client Init Error: {init_err}", flush=True)
+    except Exception as init_err:
+        print(f"Supabase Client Init Error: {init_err}", flush=True)
 
 
 class TelemetryPing(BaseModel):
