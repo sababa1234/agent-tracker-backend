@@ -28,8 +28,8 @@ if SUPABASE_URL and SUPABASE_KEY:
 
 class TelemetryPing(BaseModel):
     imei: str
-    latitude: float
-    longitude: float
+    coordinates: Optional[str] = "0.0, 0.0"   # Combined "lat, lon" string
+    phone_number: Optional[str] = "Unknown"  # SIM / Line 1 Phone Number
     city: Optional[str] = "N/A"
     network_name: Optional[str] = "N/A"
     brand: Optional[str] = "Unknown"
@@ -38,6 +38,8 @@ class TelemetryPing(BaseModel):
     build_number: Optional[str] = "Unknown" # OS Build Number
     ip_address: Optional[str] = None
     ip: Optional[str] = None                # Maintained for backward compatibility
+    latitude: Optional[float] = None        # Fallback for legacy clients
+    longitude: Optional[float] = None       # Fallback for legacy clients
 
 
 @app.get("/")
@@ -76,10 +78,15 @@ def receive_telemetry(data: TelemetryPing, request: Request):
     )
     current_time = time.time()
 
+    # Determine coordinates string with fallback for legacy requests sending float lat/lon
+    coords = data.coordinates
+    if (not coords or coords == "0.0, 0.0") and data.latitude is not None and data.longitude is not None:
+        coords = f"{data.latitude}, {data.longitude}"
+
     payload = {
         "imei": data.imei,
-        "latitude": data.latitude,
-        "longitude": data.longitude,
+        "coordinates": coords or "0.0, 0.0",
+        "phone_number": data.phone_number or "Unknown",
         "city": data.city or "N/A",
         "network_name": data.network_name or "N/A",
         "brand": data.brand or "Unknown",
